@@ -435,11 +435,61 @@ static int run_supervisor(const char *rootfs)
  * logging pipe. A UNIX domain socket is the most direct option, but a
  * FIFO or shared memory design is also acceptable if justified.
  */
+
+int child_func(void *arg)
+{
+
+child_config_t *cfg =(child_config_t *)arg;
+printf("Child PID: %d\n", getpid());
+chroot(cfg->rootfs);
+chdir("/");
+mount("proc","/proc","proc",0,NULL);
+setenv("PATH","/bin:/usr/bin:/sbin:/usr/sbin",1);
+execl("/bin/sh","sh","-c",cfg->command,NULL);
+perror("exec failed");
+return 1;
+}
+
 static int send_control_request(const control_request_t *req)
 {
-    (void)req;
-    fprintf(stderr, "Control-plane client path not implemented.\n");
-    return 1;
+
+if(req->kind==CMD_RUN)
+{
+FILE *f=fopen("containers.txt","a");
+if (f)
+{
+fprintf(f, "ID: %s | CMD: %s\n", req->container_id, req->command);
+fclose(f);
+}
+
+printf("Executing in child process...\n");
+char * stack = malloc(1024 * 1024);
+child_config_t *cfg = malloc(sizeof(child_config_t));
+strcpy(cfg->id, req->container_id);
+strcpy(cfg->rootfs, req->rootfs);
+strcpy(cfg->command, req->command);
+cfg->nice_value=req->nice_value;
+pid_t pid = clone(child_func, stack + 1024*1024, CLONE_NEWPID | CLONE_NEWUTS | CLONE_NEWNS | SIGCHLD , cfg);
+
+if(pid==0)
+{
+execl("/bin/sh", "sh", "-c", req->command, NULL);
+perror("exec failed");
+}
+else if(pid>0)
+{
+wait(NULL);
+}
+else
+{
+perror("fork failed");
+}
+
+}
+
+
+return 0;
+
 }
 
 static int cmd_start(int argc, char *argv[])
@@ -494,23 +544,24 @@ static int cmd_run(int argc, char *argv[])
 
 static int cmd_ps(void)
 {
-    control_request_t req;
+FILE *f=fopen("containers.txt","r");
 
-    memset(&req, 0, sizeof(req));
-    req.kind = CMD_PS;
+if(!f)
+{
+printf("No containers found\n");
+return 0;
+}
 
-    /*
-     * TODO:
-     * The supervisor should respond with container metadata.
-     * Keep the rendering format simple enough for demos and debugging.
-     */
-    printf("Expected states include: %s, %s, %s, %s, %s\n",
-           state_to_string(CONTAINER_STARTING),
-           state_to_string(CONTAINER_RUNNING),
-           state_to_string(CONTAINER_STOPPED),
-           state_to_string(CONTAINER_KILLED),
-           state_to_string(CONTAINER_EXITED));
-    return send_control_request(&req);
+char line[256];
+printf("Running containers:\n");
+while(fgets(line, sizeof(line),f))
+{
+printf("%s",line);
+}
+
+fclose(f);
+return 0;
+
 }
 
 static int cmd_logs(int argc, char *argv[])
