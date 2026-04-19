@@ -487,6 +487,17 @@ perror("fork failed");
 
 }
 
+int fd=open("/dev/container_monitor",O_RDWR);
+if (fd<0)
+{
+perror("open device failed");
+}
+else
+{
+printf("connected to kernel module\n");
+close(fd);
+}
+
 
 return 0;
 

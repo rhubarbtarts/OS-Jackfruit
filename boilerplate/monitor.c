@@ -30,7 +30,7 @@
 
 #define DEVICE_NAME "container_monitor"
 #define CHECK_INTERVAL_SEC 1
-
+#define CONTAINER_ID_LEN 64
 /* ==============================================================
  * TODO 1: Define your linked-list node struct.
  *
