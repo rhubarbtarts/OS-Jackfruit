@@ -9,8 +9,8 @@
 #include <sys/un.h>
 #include <sys/mount.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <errno.h>
-#include <time.h>
 
 #include "monitor_ioctl.h"
 
@@ -22,8 +22,8 @@ typedef enum {
     CMD_START,
     CMD_RUN,
     CMD_PS,
-    CMD_LOGS,
-    CMD_STOP
+    CMD_STOP,
+    CMD_KILLALL
 } command_kind_t;
 
 typedef struct {
@@ -33,7 +33,6 @@ typedef struct {
     char command[256];
     unsigned long soft_limit_bytes;
     unsigned long hard_limit_bytes;
-    int nice_value;
 } control_request_t;
 
 typedef struct {
@@ -57,11 +56,12 @@ int child_func(void *arg)
 
     chdir("/");
 
-    if (mount("proc", "/proc", "proc", 0, NULL) < 0) {
-        perror("mount proc");
-    }
+    mount("proc", "/proc", "proc", 0, NULL);
 
-    setenv("PATH", "/bin:/usr/bin:/sbin:/usr/sbin", 1);
+    int log_fd = open("container.log", O_CREAT | O_WRONLY | O_APPEND, 0644);
+    dup2(log_fd, STDOUT_FILENO);
+    dup2(log_fd, STDERR_FILENO);
+    close(log_fd);
 
     execl("/bin/sh", "sh", "-c", cfg->command, NULL);
 
@@ -71,7 +71,7 @@ int child_func(void *arg)
 
 /* ================= SUPERVISOR ================= */
 
-static int run_supervisor(const char *rootfs)
+static int run_supervisor()
 {
     int server_fd, client_fd;
     struct sockaddr_un addr;
@@ -122,7 +122,7 @@ static int run_supervisor(const char *rootfs)
             if (pid > 0) {
                 printf("Started PID: %d\n", pid);
 
-                /* Save for ps */
+                /* Save metadata */
                 FILE *f = fopen("containers.txt", "a");
                 if (f) {
                     fprintf(f, "ID: %s PID: %d CMD: %s\n",
@@ -155,16 +155,13 @@ static int run_supervisor(const char *rootfs)
 
 /* ================= CLIENT ================= */
 
-static int send_control_request(const control_request_t *req)
+static int send_request(control_request_t *req)
 {
     int fd;
     struct sockaddr_un addr;
 
     fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (fd < 0) {
-        perror("socket");
-        return 1;
-    }
+    if (fd < 0) return 1;
 
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
@@ -178,7 +175,6 @@ static int send_control_request(const control_request_t *req)
     write(fd, req, sizeof(*req));
     close(fd);
 
-    printf("Request sent to supervisor\n");
     return 0;
 }
 
@@ -186,14 +182,14 @@ static int send_control_request(const control_request_t *req)
 
 static int cmd_start(int argc, char *argv[])
 {
-    control_request_t req;
-
     if (argc < 5) {
         printf("Usage: start <id> <rootfs> <cmd>\n");
         return 1;
     }
 
+    control_request_t req;
     memset(&req, 0, sizeof(req));
+
     req.kind = CMD_START;
     strcpy(req.container_id, argv[2]);
     strcpy(req.rootfs, argv[3]);
@@ -202,18 +198,12 @@ static int cmd_start(int argc, char *argv[])
     req.soft_limit_bytes = 40UL << 20;
     req.hard_limit_bytes = 64UL << 20;
 
-    return send_control_request(&req);
+    return send_request(&req);
 }
 
-static int cmd_run(int argc, char *argv[])
-{
-    return cmd_start(argc, argv);
-}
-
-static int cmd_ps(void)
+static int cmd_ps()
 {
     FILE *f = fopen("containers.txt", "r");
-
     if (!f) {
         printf("No containers\n");
         return 0;
@@ -227,6 +217,46 @@ static int cmd_ps(void)
     return 0;
 }
 
+static int cmd_stop(char *id)
+{
+    FILE *f = fopen("containers.txt", "r");
+    if (!f) return 0;
+
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        char cid[32];
+        int pid;
+
+        if (sscanf(line, "ID: %s PID: %d", cid, &pid) == 2) {
+            if (strcmp(cid, id) == 0) {
+                printf("Stopping %s\n", cid);
+                kill(pid, SIGKILL);
+            }
+        }
+    }
+
+    fclose(f);
+    return 0;
+}
+
+static int cmd_killall()
+{
+    FILE *f = fopen("containers.txt", "r");
+    if (!f) return 0;
+
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        int pid;
+        if (sscanf(line, "ID: %*s PID: %d", &pid) == 1) {
+            kill(pid, SIGKILL);
+        }
+    }
+
+    fclose(f);
+    printf("All containers killed\n");
+    return 0;
+}
+
 /* ================= MAIN ================= */
 
 int main(int argc, char *argv[])
@@ -237,16 +267,22 @@ int main(int argc, char *argv[])
     }
 
     if (strcmp(argv[1], "supervisor") == 0)
-        return run_supervisor(argv[2]);
+        return run_supervisor();
 
     if (strcmp(argv[1], "start") == 0)
         return cmd_start(argc, argv);
 
     if (strcmp(argv[1], "run") == 0)
-        return cmd_run(argc, argv);
+        return cmd_start(argc, argv);
 
     if (strcmp(argv[1], "ps") == 0)
         return cmd_ps();
+
+    if (strcmp(argv[1], "stop") == 0)
+        return cmd_stop(argv[2]);
+
+    if (strcmp(argv[1], "killall") == 0)
+        return cmd_killall();
 
     printf("Unknown command\n");
     return 1;
