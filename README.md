@@ -1,4 +1,4 @@
-# Multi-Container Runtime (OS Project)
+# Multi-Container Runtime 
 
 ## Overview
 
