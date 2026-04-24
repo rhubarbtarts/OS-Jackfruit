@@ -120,6 +120,8 @@ sudo insmod monitor.ko
 ```bash
 sudo ./engine supervisor ../rootfs-base
 ```
+<img width="733" height="182" alt="supervisor" src="https://github.com/user-attachments/assets/85732e8a-8e18-4c5b-a8b6-c3a209087067" />
+
 
 ---
 
@@ -130,6 +132,8 @@ sudo ./engine start alpha ../rootfs-base "/bin/ls"
 sudo ./engine start beta ../rootfs-base "/bin/ps"
 sudo ./engine start gamma ../rootfs-base "/bin/ps"
 ```
+<img width="730" height="95" alt="alpha" src="https://github.com/user-attachments/assets/9d0ac247-b839-48c6-99e2-1c0e65d4128d" />
+
 
 ---
 
@@ -138,6 +142,7 @@ sudo ./engine start gamma ../rootfs-base "/bin/ps"
 ```bash
 ./engine ps
 ```
+<img width="740" height="485" alt="dmesg" src="https://github.com/user-attachments/assets/1f2c5437-aacc-483b-9117-71d9143a7b20" />
 
 ---
 
@@ -164,6 +169,7 @@ sudo ./engine killall
 ```bash
 dmesg | tail
 ```
+<img width="740" height="485" alt="dmesg" src="https://github.com/user-attachments/assets/d9b295bc-f10c-4695-9036-0bfd84328699" />
 
 ---
 
